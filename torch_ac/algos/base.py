@@ -128,15 +128,29 @@ class BaseAlgo(ABC):
 
             preprocessed_obs = self.preprocess_obss(self.obs, device=self.device)
             with torch.no_grad():
-                if self.acmodel.recurrent:
-                    dist, value, memory = self.acmodel(preprocessed_obs, self.memory * self.mask.unsqueeze(1))
+                if not self.acmodel.optlib:
+                    if self.acmodel.recurrent:
+                        dist, value, memory = self.acmodel(preprocessed_obs, self.memory * self.mask.unsqueeze(1))
+                    else:
+                        dist, value = self.acmodel(preprocessed_obs)
+                    action = dist.sample()
+                    obs, reward, done, _ = self.env.step(action.cpu().numpy())
                 else:
-                    dist, value = self.acmodel(preprocessed_obs)
-            action = dist.sample()
+                    dist, value, switch, prob_out, prob_in = self.acmodel(preprocessed_obs)
+                    # TODO: do something with the prob_in and prob_out
+                    # should store them as new entries inside the DictList
+                    action = dist.sample()
+                    obs, reward, done, _ = self.env.step(action.cpu().numpy(), switches=switch.cpu().numpy())
 
-            obs, reward, done, _ = self.env.step(action.cpu().numpy())
+            # TODO modify rewards??
+            # default reward, penalized by JS divergence between two output
+            # proabilities, weighted by beta (temperature for how seriously to
+            # take them)
+            # 2 things to think about:
+            # 1) how do you know if it's right? may have to look at advantage.
+            # 2) how do you know what beta you're currently at?
 
-            # Update experiences values
+            # UPDATE experiences values
 
             self.obss[i] = self.obs
             self.obs = obs
@@ -144,6 +158,7 @@ class BaseAlgo(ABC):
                 self.memories[i] = self.memory
                 self.memory = memory
             self.masks[i] = self.mask
+
             self.mask = 1 - torch.tensor(done, device=self.device, dtype=torch.float)
             self.actions[i] = action
             self.values[i] = value
@@ -177,10 +192,13 @@ class BaseAlgo(ABC):
 
         preprocessed_obs = self.preprocess_obss(self.obs, device=self.device)
         with torch.no_grad():
-            if self.acmodel.recurrent:
-                _, next_value, _ = self.acmodel(preprocessed_obs, self.memory * self.mask.unsqueeze(1))
+            if self.acmodel.optlib:
+                _, next_value, _, _, _ = self.acmodel(preprocessed_obs)
             else:
-                _, next_value = self.acmodel(preprocessed_obs)
+                if self.acmodel.recurrent:
+                    _, next_value, _ = self.acmodel(preprocessed_obs, self.memory * self.mask.unsqueeze(1))
+                else:
+                    _, next_value = self.acmodel(preprocessed_obs)
 
         for i in reversed(range(self.num_frames_per_proc)):
             next_mask = self.masks[i+1] if i < self.num_frames_per_proc - 1 else self.mask

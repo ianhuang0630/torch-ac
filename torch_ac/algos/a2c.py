@@ -42,19 +42,32 @@ class A2CAlgo(BaseAlgo):
             sb = exps[inds + i]
 
             # Compute loss
-
-            if self.acmodel.recurrent:
-                dist, value, memory = self.acmodel(sb.obs, memory * sb.mask)
+            # evaluation then happens in bulk here.
+            # Passed in a tensor of |inds| x [image size]
+            # the value here is redundant. only dist isn't contained in sb.
+            # this is only to encourage exploration
+            if self.acmodel.optlib:
+                dist, value, _, prob_out, prob_in = self.acmodel(sb.obs)
             else:
-                dist, value = self.acmodel(sb.obs)
+                if self.acmodel.recurrent:
+                    dist, value, memory = self.acmodel(sb.obs, memory * sb.mask)
+                else:
+                    dist, value = self.acmodel(sb.obs)
+                    # retrieving again just because didn't store distribution
+                    # TODO: change for our model, since it has state information
 
+            # loss function uses entropy 
             entropy = dist.entropy().mean()
 
             policy_loss = -(dist.log_prob(sb.action) * sb.advantage).mean()
 
             value_loss = (value - sb.returnn).pow(2).mean()
 
-            loss = policy_loss - self.entropy_coef * entropy + self.value_loss_coef * value_loss
+            # TODO new loss? Regulated reward
+            if self.acmodel.optlib:
+                loss = policy_loss - self.entropy_coef * entropy + self.value_loss_coef * value_loss - (prob_out - prob_in).mean()
+            else:
+                loss = policy_loss - self.entropy_coef * entropy + self.value_loss_coef * value_loss
 
             # Update batch values
 

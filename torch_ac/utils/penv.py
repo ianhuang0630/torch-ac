@@ -5,7 +5,10 @@ def worker(conn, env):
     while True:
         cmd, data = conn.recv()
         if cmd == "step":
-            obs, reward, done, info = env.step(data)
+            if isinstance(data, dict) and 'switch' in data:
+                obs, reward, done, info = env.step(data['action'], data['switch'])
+            else:
+                obs, reward, done, info = env.step(data)
             if done:
                 obs = env.reset()
             conn.send((obs, reward, done, info))
@@ -16,6 +19,7 @@ def worker(conn, env):
             return
         else:
             raise NotImplementedError
+
 
 class ParallelEnv(gym.Env):
     """A concurrent execution of environments in multiple processes."""
@@ -46,10 +50,17 @@ class ParallelEnv(gym.Env):
         results = [self.envs[0].reset()] + [local.recv() for local in self.locals]
         return results
 
-    def step(self, actions):
-        for local, action in zip(self.locals, actions[1:]):
-            local.send(("step", action))
-        obs, reward, done, info = self.envs[0].step(actions[0])
+    def step(self, actions, switches=None):
+        if switches is None:
+            for local, action in zip(self.locals, actions[1:]):
+                local.send(("step", action))
+            obs, reward, done, info = self.envs[0].step(actions[0])
+        else:
+            for local, action, switch in zip(self.locals, actions[1:], switches[1:]):
+                local.send(("step", {'action': action, 'switch': switch}))
+            assert hasattr(self.envs[0], "optlib")
+            obs, reward, done, info = self.envs[0].step(actions[0], switches[0])
+
         if done:
             obs = self.envs[0].reset()
         results = zip(*[(obs, reward, done, info)] + [local.recv() for local in self.locals])
@@ -57,3 +68,4 @@ class ParallelEnv(gym.Env):
 
     def render(self):
         raise NotImplementedError
+
