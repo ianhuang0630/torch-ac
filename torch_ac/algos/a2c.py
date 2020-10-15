@@ -64,7 +64,7 @@ class A2CAlgo(BaseAlgo):
             value_loss = (value - sb.returnn).pow(2).mean()
 
             if self.acmodel.optlib:
-                alpha = 0.01
+                alpha = 0
                 js = 0.5 * (prob_in * torch.log(prob_in) + prob_out * torch.log(prob_out)) - 0.5*(prob_in + prob_out) * torch.log(0.5 * (prob_in + prob_out))
                 probability_alignment_loss = alpha * torch.mean(js)
                 loss = policy_loss - self.entropy_coef * entropy + self.value_loss_coef * value_loss + probability_alignment_loss
