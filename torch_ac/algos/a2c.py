@@ -56,16 +56,18 @@ class A2CAlgo(BaseAlgo):
                     # retrieving again just because didn't store distribution
                     # TODO: change for our model, since it has state information
 
-            # loss function uses entropy 
+            # loss function uses entropy
             entropy = dist.entropy().mean()
 
             policy_loss = -(dist.log_prob(sb.action) * sb.advantage).mean()
 
             value_loss = (value - sb.returnn).pow(2).mean()
 
-            # TODO new loss? Regulated reward
             if self.acmodel.optlib:
-                loss = policy_loss - self.entropy_coef * entropy + self.value_loss_coef * value_loss - (prob_out - prob_in).mean()
+                alpha = 0.01
+                js = 0.5 * (prob_in * torch.log(prob_in) + prob_out * torch.log(prob_out)) - 0.5*(prob_in + prob_out) * torch.log(0.5 * (prob_in + prob_out))
+                probability_alignment_loss = alpha * torch.mean(js)
+                loss = policy_loss - self.entropy_coef * entropy + self.value_loss_coef * value_loss + probability_alignment_loss
             else:
                 loss = policy_loss - self.entropy_coef * entropy + self.value_loss_coef * value_loss
 

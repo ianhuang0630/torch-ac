@@ -88,6 +88,10 @@ class BaseAlgo(ABC):
         self.actions = torch.zeros(*shape, device=self.device, dtype=torch.int)
         self.values = torch.zeros(*shape, device=self.device)
         self.rewards = torch.zeros(*shape, device=self.device)
+
+        self.prob_in = torch.zeros(*shape, device=self.device)
+        self.prob_out = torch.zeros(*shape, device=self.device)
+
         self.advantages = torch.zeros(*shape, device=self.device)
         self.log_probs = torch.zeros(*shape, device=self.device)
 
@@ -149,7 +153,7 @@ class BaseAlgo(ABC):
             # 2 things to think about:
             # 1) how do you know if it's right? may have to look at advantage.
             # 2) how do you know what beta you're currently at?
-
+            # 
             # UPDATE experiences values
 
             self.obss[i] = self.obs
@@ -171,6 +175,9 @@ class BaseAlgo(ABC):
                 self.rewards[i] = torch.tensor(reward, device=self.device)
             self.log_probs[i] = dist.log_prob(action)
 
+            if self.acmodel.optlib:
+                self.prob_in[i] = torch.tensor(prob_in, device=self.device, dtype=torch.float)
+                self.prob_out[i] = torch.tensor(prob_out, device=self.device, dtype=torch.float)
             # Update log values
 
             self.log_episode_return += torch.tensor(reward, device=self.device, dtype=torch.float)
@@ -204,7 +211,6 @@ class BaseAlgo(ABC):
             next_mask = self.masks[i+1] if i < self.num_frames_per_proc - 1 else self.mask
             next_value = self.values[i+1] if i < self.num_frames_per_proc - 1 else next_value
             next_advantage = self.advantages[i+1] if i < self.num_frames_per_proc - 1 else 0
-
             delta = self.rewards[i] + self.discount * next_value * next_mask - self.values[i]
             self.advantages[i] = delta + self.discount * self.gae_lambda * next_advantage * next_mask
 
@@ -225,16 +231,17 @@ class BaseAlgo(ABC):
             exps.memory = self.memories.transpose(0, 1).reshape(-1, *self.memories.shape[2:])
             # T x P -> P x T -> (P * T) x 1
             exps.mask = self.masks.transpose(0, 1).reshape(-1).unsqueeze(1)
-        # for all tensors below, T x P -> P x T -> P * T
+
         exps.action = self.actions.transpose(0, 1).reshape(-1)
         exps.value = self.values.transpose(0, 1).reshape(-1)
         exps.reward = self.rewards.transpose(0, 1).reshape(-1)
         exps.advantage = self.advantages.transpose(0, 1).reshape(-1)
         exps.returnn = exps.value + exps.advantage
         exps.log_prob = self.log_probs.transpose(0, 1).reshape(-1)
+        exps.prob_in = self.prob_in.transpose(0,1).reshape(-1)
+        exps.prob_out = self.prob_out.transpose(0,1).reshape(-1)
 
         # Preprocess experiences
-
         exps.obs = self.preprocess_obss(exps.obs, device=self.device)
 
         # Log some values
