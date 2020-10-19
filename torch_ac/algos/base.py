@@ -4,6 +4,8 @@ import torch
 from torch_ac.format import default_preprocess_obss
 from torch_ac.utils import DictList, ParallelEnv
 
+import numpy as np
+
 class BaseAlgo(ABC):
     """The base class for RL algorithms."""
 
@@ -126,6 +128,9 @@ class BaseAlgo(ABC):
             Useful stats about the training process, including the average
             reward, policy loss, value loss, etc.
         """
+        # only non-zero matrix for optlib type models.
+        subtask_switch = np.zeros((self.num_frames_per_proc, self.num_procs))
+        subtask = []
 
         for i in range(self.num_frames_per_proc):
             # Do one agent-environment interaction
@@ -141,19 +146,16 @@ class BaseAlgo(ABC):
                     obs, reward, done, _ = self.env.step(action.cpu().numpy())
                 else:
                     dist, value, switch, prob_out, prob_in = self.acmodel(preprocessed_obs)
-                    # TODO: do something with the prob_in and prob_out
-                    # should store them as new entries inside the DictList
                     action = dist.sample()
+
                     obs, reward, done, _ = self.env.step(action.cpu().numpy(), switches=switch.cpu().numpy())
 
-            # TODO modify rewards??
-            # default reward, penalized by JS divergence between two output
-            # proabilities, weighted by beta (temperature for how seriously to
-            # take them)
-            # 2 things to think about:
-            # 1) how do you know if it's right? may have to look at advantage.
-            # 2) how do you know what beta you're currently at?
-            # 
+                    # store switch within dictionary
+                    subtask_switch[i] = switch.cpu().numpy().squeeze()
+                    # store the next subtask too?
+                    subtask_number = [obs[j]['curr_symbol'].index(1) for j in range(len(obs))]
+                    subtask.append(subtask_number)
+
             # UPDATE experiences values
 
             self.obss[i] = self.obs
@@ -194,6 +196,12 @@ class BaseAlgo(ABC):
             self.log_episode_return *= self.mask
             self.log_episode_reshaped_return *= self.mask
             self.log_episode_num_frames *= self.mask
+
+        # convert subtask to matrix
+        if len(subtask) == 0:
+            subtask = -1 * np.ones((self.num_frames_per_proc, self.num_procs))
+        else:
+            subtask = np.array(subtask)
 
         # Add advantage and return to experiences
 
@@ -252,7 +260,10 @@ class BaseAlgo(ABC):
             "return_per_episode": self.log_return[-keep:],
             "reshaped_return_per_episode": self.log_reshaped_return[-keep:],
             "num_frames_per_episode": self.log_num_frames[-keep:],
-            "num_frames": self.num_frames
+            "num_frames": self.num_frames,
+            # include subtask-switching decisions
+            "switches": subtask_switch,
+            "subtask_num": subtask
         }
 
         self.log_done_counter = 0
