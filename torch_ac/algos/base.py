@@ -145,7 +145,11 @@ class BaseAlgo(ABC):
                     action = dist.sample()
                     obs, reward, done, _ = self.env.step(action.cpu().numpy())
                 else:
-                    dist, value, switch, prob_out, prob_in = self.acmodel(preprocessed_obs)
+                    # TODO: if memory
+                    if self.acmodel.recurrent:
+                        dist, value, switch, prob_out, prob_in, memory = self.acmodel(preprocessed_obs, self.memory * self.mask.unsqueeze(1))
+                    else:
+                        dist, value, switch, prob_out, prob_in = self.acmodel(preprocessed_obs)
                     action = dist.sample()
 
                     obs, reward, done, _ = self.env.step(action.cpu().numpy(), switches=switch.cpu().numpy())
@@ -208,7 +212,10 @@ class BaseAlgo(ABC):
         preprocessed_obs = self.preprocess_obss(self.obs, device=self.device)
         with torch.no_grad():
             if self.acmodel.optlib:
-                _, next_value, _, _, _ = self.acmodel(preprocessed_obs)
+                if self.acmodel.recurrent:
+                    _, next_value, _, _, _, _ = self.acmodel(preprocessed_obs, self.memory * self.mask.unsqueeze(1))
+                else:
+                    _, next_value, _, _, _ = self.acmodel(preprocessed_obs)
             else:
                 if self.acmodel.recurrent:
                     _, next_value, _ = self.acmodel(preprocessed_obs, self.memory * self.mask.unsqueeze(1))

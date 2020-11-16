@@ -47,7 +47,10 @@ class A2CAlgo(BaseAlgo):
             # the value here is redundant. only dist isn't contained in sb.
             # this is only to encourage exploration
             if self.acmodel.optlib:
-                dist, value, _, prob_out, prob_in = self.acmodel(sb.obs)
+                if self.acmodel.recurrent:
+                    dist, value, _, prob_out, prob_in, memory = self.acmodel(sb.obs, memory * sb.mask)
+                else:
+                    dist, Value, _, prob_out, prob_in = self.acmodel(sb.obs)
             else:
                 if self.acmodel.recurrent:
                     dist, value, memory = self.acmodel(sb.obs, memory * sb.mask)
@@ -64,7 +67,7 @@ class A2CAlgo(BaseAlgo):
             value_loss = (value - sb.returnn).pow(2).mean()
 
             if self.acmodel.optlib:
-                alpha = 0.01
+                alpha = 0.01 
                 js = 0.5 * (prob_in * torch.log(prob_in) + prob_out * torch.log(prob_out)) - 0.5*(prob_in + prob_out) * torch.log(0.5 * (prob_in + prob_out))
                 return_js = sb.returnn * js 
                 probability_alignment_loss = alpha * torch.mean(return_js)
