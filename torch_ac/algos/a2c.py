@@ -31,6 +31,9 @@ class A2CAlgo(BaseAlgo):
         update_value_loss = 0
         update_loss = 0
 
+        update_terminal_loss = 0
+        update_alignment_loss = 0
+
         # Initialize memory
 
         if self.acmodel.recurrent:
@@ -48,30 +51,39 @@ class A2CAlgo(BaseAlgo):
             # this is only to encourage exploration
             if self.acmodel.optlib:
                 if self.acmodel.recurrent:
-                    dist, value, _, prob_out, prob_in, memory = self.acmodel(sb.obs, memory * sb.mask)
+                    dist, value, switch, prob_out, prob_in, memory = self.acmodel(sb.obs, memory * sb.mask)
                 else:
-                    dist, Value, _, prob_out, prob_in = self.acmodel(sb.obs)
+                    dist, value, switch, prob_out, prob_in = self.acmodel(sb.obs)
             else:
                 if self.acmodel.recurrent:
                     dist, value, memory = self.acmodel(sb.obs, memory * sb.mask)
                 else:
                     dist, value = self.acmodel(sb.obs)
                     # retrieving again just because didn't store distribution
-                    # TODO: change for our model, since it has state information
 
             # loss function uses entropy
             entropy = dist.entropy().mean()
+
+            # NOTE: every action was chosen both because of a policy (dist) and because of a probability of
+            # staying/transitioning on that symbol.
 
             policy_loss = -(dist.log_prob(sb.action) * sb.advantage).mean()
 
             value_loss = (value - sb.returnn).pow(2).mean()
 
             if self.acmodel.optlib:
-                alpha = 0.01 
+                alpha = 0.01
+
+                tl_scale = sb.returnn # previously sb.advantage
+                terminal_loss = -(torch.log(prob_out * switch.squeeze() + (1-prob_out) * (1-switch.squeeze())) * tl_scale).mean()
+
                 js = 0.5 * (prob_in * torch.log(prob_in) + prob_out * torch.log(prob_out)) - 0.5*(prob_in + prob_out) * torch.log(0.5 * (prob_in + prob_out))
                 return_js = sb.returnn * js 
                 probability_alignment_loss = alpha * torch.mean(return_js)
-                loss = policy_loss - self.entropy_coef * entropy + self.value_loss_coef * value_loss + probability_alignment_loss
+                loss = policy_loss - self.entropy_coef * entropy + self.value_loss_coef * value_loss + terminal_loss + probability_alignment_loss
+
+                # TODO forced term that also tunes the termination policy?
+
             else:
                 loss = policy_loss - self.entropy_coef * entropy + self.value_loss_coef * value_loss
 
@@ -81,6 +93,11 @@ class A2CAlgo(BaseAlgo):
             update_value += value.mean().item()
             update_policy_loss += policy_loss.item()
             update_value_loss += value_loss.item()
+
+            if self.acmodel.optlib:
+                update_terminal_loss += terminal_loss.item()
+                update_alignment_loss += probability_alignment_loss.item()
+
             update_loss += loss
 
         # Update update values
@@ -91,6 +108,8 @@ class A2CAlgo(BaseAlgo):
         update_value_loss /= self.recurrence
         update_loss /= self.recurrence
 
+        update_terminal_loss /= self.recurrence
+        update_alignment_loss /= self.recurrence
         # Update actor-critic
 
         self.optimizer.zero_grad()
@@ -106,6 +125,8 @@ class A2CAlgo(BaseAlgo):
             "value": update_value,
             "policy_loss": update_policy_loss,
             "value_loss": update_value_loss,
+            "alignment_loss": update_alignment_loss,
+            "terminal_loss": update_terminal_loss,
             "grad_norm": update_grad_norm
         }
 

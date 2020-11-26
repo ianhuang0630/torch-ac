@@ -145,12 +145,16 @@ class BaseAlgo(ABC):
                     action = dist.sample()
                     obs, reward, done, _ = self.env.step(action.cpu().numpy())
                 else:
-                    # TODO: if memory
                     if self.acmodel.recurrent:
                         dist, value, switch, prob_out, prob_in, memory = self.acmodel(preprocessed_obs, self.memory * self.mask.unsqueeze(1))
                     else:
                         dist, value, switch, prob_out, prob_in = self.acmodel(preprocessed_obs)
+
+                    # TODO : dist will be one dimension larger for the new model. Prob_out will be the same size
+
                     action = dist.sample()
+
+                    # TODO: self.env.step should do something different if dist.sample gives a switch.
 
                     obs, reward, done, _ = self.env.step(action.cpu().numpy(), switches=switch.cpu().numpy())
 
